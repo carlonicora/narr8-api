@@ -1,15 +1,25 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder } from "discord.js";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { Character } from "src/features/narr8/modules/character/entities/character.entity";
 
 export abstract class DiscordSerialiser {
   protected createEmbed(params: { characterName: string; avatar?: string; userName: string }): EmbedBuilder {
+    let version = "0.0.0";
+    try {
+      const packageJsonPath = join(process.cwd(), "package.json");
+      const packageJsonContent = readFileSync(packageJsonPath, "utf8");
+      const packageJson = JSON.parse(packageJsonContent);
+      version = packageJson.version;
+    } catch (error) {}
+
     const embed = new EmbedBuilder();
 
     embed.setColor(0x0000ff);
     embed.setAuthor({ name: params.userName, iconURL: params.avatar });
     embed.setTitle(params.characterName);
     embed.setThumbnail(params.avatar);
-    embed.setFooter({ text: `Narr8` });
+    embed.setFooter({ text: `Narr8 - v${version}` });
     embed.setTimestamp(new Date());
 
     return embed;
