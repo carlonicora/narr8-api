@@ -1,7 +1,7 @@
 import { Entity, mapEntity } from "src/common/abstracts/entity";
 import { EntityFactory } from "src/common/factories/entity.factory";
 import { DataModelInterface } from "src/common/interfaces/datamodel.interface";
-import { Attribute } from "src/features/narr8/modules/attribute/entities/attribute.entity";
+import { Attribute } from "src/features/narr8/modules/character/entities/attribute.entity";
 import { User } from "src/features/narr8/modules/user/entities/user.entity";
 
 export type Character = Entity & {

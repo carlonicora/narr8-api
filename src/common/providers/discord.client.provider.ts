@@ -3,7 +3,8 @@ import { Client, GatewayIntentBits } from "discord.js";
 export const DISCORD_CLIENT = "DISCORD_CLIENT";
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+  // intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+  intents: [GatewayIntentBits.Guilds],
 });
 
 export const discordClientProvider = {

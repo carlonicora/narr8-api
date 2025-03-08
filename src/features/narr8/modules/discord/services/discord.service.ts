@@ -12,27 +12,10 @@ import {
 import { attributes } from "src/common/enums/attributes";
 import { Proficiencies } from "src/common/enums/proficiencies";
 import { DISCORD_CLIENT } from "src/common/providers/discord.client.provider";
+import { CharacterSubCommand } from "src/features/narr8/modules/character/enums/character.sub.command";
 import { CharacterDiscordService } from "../../character/services/character.discord.service";
 import { RollDiscordService } from "../../roll/services/roll.discord.service";
 import { ServerDiscordService } from "../../server/services/server.discord.service";
-
-const attributeKeys: string[] = [
-  "agility",
-  "awareness",
-  "charisma",
-  "empathy",
-  "intellect",
-  "occult",
-  "strength",
-  "willpower",
-];
-
-enum subCommand {
-  Create = "create",
-  Display = "display",
-  Avatar = "avatar",
-  Name = "name",
-}
 
 @Injectable()
 export class DiscordService implements OnModuleInit {
@@ -81,8 +64,9 @@ export class DiscordService implements OnModuleInit {
 
           if (buttonId.startsWith("/roll")) {
             await this.rollDiscordService.handleButtonInteraction(interaction as ButtonInteraction);
+          } else if (buttonId.startsWith("/character")) {
+            await this.characterDiscordService.handleButtonInteraction(interaction as ButtonInteraction);
           }
-          // Add other button handlers as needed
         }
       } catch (error) {
         this.logger.error(`Error handling interaction: ${error.message}`, error.stack);
@@ -113,15 +97,15 @@ export class DiscordService implements OnModuleInit {
       value: attr.name,
     }));
 
-    const buildAttributeSubCommands: APIApplicationCommandSubcommandOption[] = attributeKeys.map((key) => ({
-      name: key,
-      description: `Set your ${key.charAt(0).toUpperCase() + key.slice(1)} proficiency`,
-      type: 1, // 1 corresponds to Subcommand
+    const buildAttributeSubCommands: APIApplicationCommandSubcommandOption[] = attributes.map((attribute) => ({
+      name: attribute.name.toLowerCase(),
+      description: `Set your ${attribute.name} proficiency`,
+      type: ApplicationCommandOptionType.Subcommand,
       options: [
         {
           name: "proficiency",
-          description: `Choose your ${key.charAt(0).toUpperCase() + key.slice(1)} proficiency level`,
-          type: 3, // 3 corresponds to String
+          description: `Choose your ${attribute.name} proficiency level`,
+          type: ApplicationCommandOptionType.String,
           required: true,
           choices: [
             { name: Proficiencies.Unskilled, value: Proficiencies.Unskilled },
@@ -153,7 +137,7 @@ export class DiscordService implements OnModuleInit {
         description: "Manage your Discord character on this server",
         options: [
           {
-            name: subCommand.Create,
+            name: CharacterSubCommand.Create,
             description: "Create your character",
             type: ApplicationCommandOptionType.Subcommand,
             options: [
@@ -166,7 +150,7 @@ export class DiscordService implements OnModuleInit {
             ],
           },
           {
-            name: subCommand.Display,
+            name: CharacterSubCommand.Details,
             description: "Display your character",
             type: ApplicationCommandOptionType.Subcommand,
             options: [
@@ -179,7 +163,7 @@ export class DiscordService implements OnModuleInit {
             ],
           },
           {
-            name: subCommand.Avatar,
+            name: CharacterSubCommand.Avatar,
             description: "Set the avatar for your character",
             type: ApplicationCommandOptionType.Subcommand,
             options: [
@@ -192,7 +176,7 @@ export class DiscordService implements OnModuleInit {
             ],
           },
           {
-            name: subCommand.Name,
+            name: CharacterSubCommand.Name,
             description: "Set the name of your character",
             type: ApplicationCommandOptionType.Subcommand,
             options: [
@@ -204,7 +188,6 @@ export class DiscordService implements OnModuleInit {
               },
             ],
           },
-          // Spread the attribute sub-commands (now a mutable array)
           ...buildAttributeSubCommands,
         ],
       },
