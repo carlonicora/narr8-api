@@ -161,8 +161,9 @@ export class CharacterDiscordService {
 
       if (characterMember) {
         const userCharacter = await this.userRepository.findUserByDiscord({
-          discord: (characterMember as GuildMember).user.id,
+          discord: (characterMember as GuildMember).id,
         });
+
         if (userCharacter)
           params.character = await this.findOne({
             interaction: params.interaction,
