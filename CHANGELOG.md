@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/carlonicora/narr8-api/compare/v1.0.1...v1.0.2) (2025-03-08)
+
+
+### Bug Fixes
+
+* correct character details ([743afff](https://github.com/carlonicora/narr8-api/commit/743afff64a7ba0cb9ecc3f80877f528f7990e0ac))
+
 ## [1.0.1](https://github.com/carlonicora/narr8-api/compare/v1.0.0...v1.0.1) (2025-03-08)
 
 
