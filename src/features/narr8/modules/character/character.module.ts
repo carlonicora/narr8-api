@@ -10,7 +10,7 @@ import { CharacterRepository } from "./repositories/character.repository";
 @Module({
   controllers: [],
   providers: [CharacterRepository, CharacterDiscordService, CharacterDiscordSerialiser],
-  exports: [CharacterRepository],
+  exports: [CharacterRepository, CharacterDiscordService],
   imports: [UserModule],
 })
 export class CharacterModule implements OnModuleInit {

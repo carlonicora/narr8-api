@@ -1,14 +1,6 @@
-import { Inject, Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { randomUUID } from "crypto";
-import {
-  ApplicationCommandOptionType,
-  ButtonInteraction,
-  ChatInputCommandInteraction,
-  Client,
-  Interaction,
-  RESTPostAPIChatInputApplicationCommandsJSONBody,
-} from "discord.js";
-import { attributes } from "src/common/enums/attributes";
+import { ButtonInteraction, ChatInputCommandInteraction, Client } from "discord.js";
 import { DISCORD_CLIENT } from "src/common/providers/discord.client.provider";
 import { ErrorDiscordSerialiser } from "src/common/serialisers/error.discord.serialiser";
 import { Character } from "src/features/narr8/modules/character/entities/character.entity";
@@ -19,7 +11,7 @@ import { User } from "src/features/narr8/modules/user/entities/user.entity";
 import { UserRepository } from "src/features/narr8/modules/user/repositories/user.repository";
 
 @Injectable()
-export class RollDiscordService implements OnModuleInit {
+export class RollDiscordService {
   private readonly logger = new Logger(RollDiscordService.name);
 
   constructor(
@@ -31,158 +23,179 @@ export class RollDiscordService implements OnModuleInit {
     private readonly rollService: RollService,
   ) {}
 
-  async onModuleInit() {
-    if (this.client.isReady()) {
-      await this.registerCommand();
-    } else {
-      this.client.once("ready", async () => {
-        await this.registerCommand();
+  async handleRollCommand(interaction: ChatInputCommandInteraction) {
+    // Common guild and user checks.
+    const guild = interaction.guild;
+    if (!guild) {
+      await interaction.reply({
+        embeds: [this.errorDiscordSerialiser.serialise({ error: "Command used outside of a guild." })],
+      });
+      this.logger.error("Command used outside of a guild.");
+      return;
+    }
+
+    const guildUser = interaction.user;
+    if (!guildUser) {
+      await interaction.reply({
+        embeds: [this.errorDiscordSerialiser.serialise({ error: "Command used by a non-guild user." })],
+      });
+      this.logger.error("Command used by a non-guild user.");
+      return;
+    }
+
+    // Lookup or create user.
+    let user: User = await this.userRepository.findUserByDiscord({ discord: guildUser.id });
+    if (!user) {
+      user = await this.userRepository.create({
+        id: randomUUID(),
+        discord: guildUser.id,
+        name: guildUser.username,
       });
     }
 
-    // Consolidated interaction handler for both slash commands and button interactions.
-    this.client.on("interactionCreate", async (interaction: Interaction) => {
-      // Only process if the interaction is a command or a button.
-      if (!interaction.isCommand() && !interaction.isButton()) return;
-
-      // Common guild and user checks.
-      const guild = interaction.guild;
-      if (!guild) {
-        await interaction.reply({
-          embeds: [this.errorDiscordSerialiser.serialise({ error: "Command used outside of a guild." })],
-        });
-        this.logger.error("Command used outside of a guild.");
-        return;
-      }
-      const guildUser = interaction.user;
-      if (!guildUser) {
-        await interaction.reply({
-          embeds: [this.errorDiscordSerialiser.serialise({ error: "Command used by a non-guild user." })],
-        });
-        this.logger.error("Command used by a non-guild user.");
-        return;
-      }
-
-      // Lookup or create user.
-      let user: User = await this.userRepository.findUserByDiscord({ discord: guildUser.id });
-      if (!user) {
-        user = await this.userRepository.create({
-          id: randomUUID(),
-          discord: guildUser.id,
-          name: guildUser.username,
-        });
-      }
-
-      // Lookup character.
-      const character: Character = await this.characterRepository.findCharacterByDiscord({
-        discord: guild.id,
-        userId: user.id,
-      });
-      if (!character) {
-        await interaction.reply({
-          embeds: [this.errorDiscordSerialiser.serialise({ error: "No character found." })],
-        });
-        return;
-      }
-
-      // Determine attribute name.
-      let attributeName: string | null = null;
-      if (interaction.isCommand() && interaction.commandName === "roll") {
-        const chatInput = interaction as ChatInputCommandInteraction;
-        attributeName = chatInput.options.getString("attribute", true);
-      } else if (interaction.isButton()) {
-        const btnInteraction = interaction as ButtonInteraction;
-        if (btnInteraction.customId.startsWith("/roll attribute:")) {
-          // Example: "/roll attribute:Agility"
-          attributeName = btnInteraction.customId.split(":")[1];
-        }
-      }
-
-      if (!attributeName) {
-        await interaction.reply({
-          embeds: [this.errorDiscordSerialiser.serialise({ error: "No attribute provided." })],
-        });
-        return;
-      }
-
-      const attribute = character.attribute.find((attr) => attr.name.toLowerCase() === attributeName.toLowerCase());
-      if (!attribute) {
-        await interaction.reply({
-          embeds: [this.errorDiscordSerialiser.serialise({ error: "Attribute not found." })],
-        });
-        return;
-      }
-
-      // Determine proficiency numeric value.
-      let attributeValue = 16;
-      switch (attribute.proficiency) {
-        case "Unskilled":
-          attributeValue = 16;
-          break;
-        case "Novice":
-          attributeValue = 13;
-          break;
-        case "Skilled":
-          attributeValue = 10;
-          break;
-        case "Expert":
-          attributeValue = 7;
-          break;
-        case "Master":
-          attributeValue = 4;
-          break;
-      }
-
-      try {
-        const roll = this.rollService.roll({ proficiency: attributeValue });
-        await interaction.reply(
-          this.rollDiscordSerialiser.serialise({
-            character: character,
-            attribute: attribute,
-            roll: roll,
-          }),
-        );
-      } catch (error) {
-        await interaction.reply({
-          embeds: [
-            this.errorDiscordSerialiser.serialise({
-              error: "Error handling the roll command",
-              description: String(error),
-            }),
-          ],
-        });
-        this.logger.error("Error handling roll command", error);
-      }
+    // Lookup character.
+    const character: Character = await this.characterRepository.findCharacterByDiscord({
+      discord: guild.id,
+      userId: user.id,
     });
+    if (!character) {
+      await interaction.reply({
+        embeds: [this.errorDiscordSerialiser.serialise({ error: "No character found." })],
+      });
+      return;
+    }
+
+    // Get attribute name from command with better error handling
+    let attributeName: string;
+    try {
+      attributeName = interaction.options.getString("attribute", true);
+    } catch (error) {
+      await interaction.reply({
+        embeds: [
+          this.errorDiscordSerialiser.serialise({
+            error: "Missing required attribute option",
+            description: "Please provide an attribute to roll.",
+          }),
+        ],
+      });
+      this.logger.error("Roll command missing required attribute option", error);
+      return;
+    }
+
+    await this.processRoll(interaction, character, attributeName);
   }
 
-  private async registerCommand() {
-    const choices = attributes.map((attr) => ({
-      name: attr.name,
-      value: attr.name,
-    }));
+  async handleButtonInteraction(interaction: ButtonInteraction) {
+    // Common guild and user checks.
+    const guild = interaction.guild;
+    if (!guild) {
+      await interaction.reply({
+        embeds: [this.errorDiscordSerialiser.serialise({ error: "Command used outside of a guild." })],
+      });
+      this.logger.error("Command used outside of a guild.");
+      return;
+    }
 
-    const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
-      {
-        name: "roll",
-        description: "Roll an Attribute",
-        options: [
-          {
-            name: "attribute",
-            description: "Choose the attribute for the roll",
-            type: ApplicationCommandOptionType.String,
-            required: true,
-            choices,
-          },
-        ],
-      },
-    ];
+    const guildUser = interaction.user;
+    if (!guildUser) {
+      await interaction.reply({
+        embeds: [this.errorDiscordSerialiser.serialise({ error: "Command used by a non-guild user." })],
+      });
+      this.logger.error("Command used by a non-guild user.");
+      return;
+    }
+
+    // Lookup or create user.
+    let user: User = await this.userRepository.findUserByDiscord({ discord: guildUser.id });
+    if (!user) {
+      user = await this.userRepository.create({
+        id: randomUUID(),
+        discord: guildUser.id,
+        name: guildUser.username,
+      });
+    }
+
+    // Lookup character.
+    const character: Character = await this.characterRepository.findCharacterByDiscord({
+      discord: guild.id,
+      userId: user.id,
+    });
+    if (!character) {
+      await interaction.reply({
+        embeds: [this.errorDiscordSerialiser.serialise({ error: "No character found." })],
+      });
+      return;
+    }
+
+    // Get attribute name from button custom ID
+    let attributeName = null;
+    if (interaction.customId.startsWith("/roll attribute:")) {
+      attributeName = interaction.customId.split(":")[1];
+    }
+
+    await this.processRoll(interaction, character, attributeName);
+  }
+
+  // Shared logic for processing rolls
+  private async processRoll(
+    interaction: ButtonInteraction | ChatInputCommandInteraction,
+    character: Character,
+    attributeName: string | null,
+  ) {
+    if (!attributeName) {
+      await interaction.reply({
+        embeds: [this.errorDiscordSerialiser.serialise({ error: "No attribute provided." })],
+      });
+      return;
+    }
+
+    const attribute = character.attribute.find((attr) => attr.name.toLowerCase() === attributeName.toLowerCase());
+    if (!attribute) {
+      await interaction.reply({
+        embeds: [this.errorDiscordSerialiser.serialise({ error: "Attribute not found." })],
+      });
+      return;
+    }
+
+    // Determine proficiency numeric value.
+    let attributeValue = 16;
+    switch (attribute.proficiency) {
+      case "Unskilled":
+        attributeValue = 16;
+        break;
+      case "Novice":
+        attributeValue = 13;
+        break;
+      case "Skilled":
+        attributeValue = 10;
+        break;
+      case "Expert":
+        attributeValue = 7;
+        break;
+      case "Master":
+        attributeValue = 4;
+        break;
+    }
 
     try {
-      await this.client.application?.commands.set(commands);
-      this.logger.log("DISCORD - Roll commands registered globally");
+      const roll = this.rollService.roll({ proficiency: attributeValue });
+      await interaction.reply(
+        this.rollDiscordSerialiser.serialise({
+          character: character,
+          attribute: attribute,
+          roll: roll,
+        }),
+      );
     } catch (error) {
-      this.logger.error("Failed to register roll commands:", error);
+      await interaction.reply({
+        embeds: [
+          this.errorDiscordSerialiser.serialise({
+            error: "Error handling the roll command",
+            description: String(error),
+          }),
+        ],
+      });
+      this.logger.error("Error handling roll command", error);
     }
   }
 }

@@ -8,7 +8,7 @@ import { UserModule } from "src/features/narr8/modules/user/user.module";
 @Module({
   controllers: [],
   providers: [RollDiscordService, RollService, RollDiscordSerialiser],
-  exports: [],
+  exports: [RollDiscordService],
   imports: [UserModule, CharacterModule],
 })
 export class RollModule implements OnModuleInit {

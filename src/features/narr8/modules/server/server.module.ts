@@ -9,7 +9,7 @@ import { ServerRepository } from "./repositories/server.repository";
 @Module({
   controllers: [],
   providers: [ServerRepository, ServerDiscordService, ServerDiscordSerialiser],
-  exports: [],
+  exports: [ServerDiscordService],
   imports: [UserModule],
 })
 export class ServerModule implements OnModuleInit {
