@@ -1,7 +1,6 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { randomUUID } from "crypto";
-import { ChatInputCommandInteraction, Client, Guild } from "discord.js";
-import { DISCORD_CLIENT } from "src/common/providers/discord.client.provider";
+import { ChatInputCommandInteraction, Guild } from "discord.js";
 import { ErrorDiscordSerialiser } from "src/common/serialisers/error.discord.serialiser";
 import { Server } from "src/features/narr8/modules/server/entities/server.entity";
 import { ServerRepository } from "src/features/narr8/modules/server/repositories/server.repository";
@@ -14,7 +13,6 @@ export class ServerDiscordService {
   private readonly logger = new Logger(ServerDiscordService.name);
 
   constructor(
-    @Inject(DISCORD_CLIENT) private readonly client: Client,
     private readonly serverRepository: ServerRepository,
     private readonly serverDiscordSerialiser: ServerDiscordSerialiser,
     private readonly errorDiscordSerialiser: ErrorDiscordSerialiser,

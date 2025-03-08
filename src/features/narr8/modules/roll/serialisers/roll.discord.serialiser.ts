@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { ActionRowBuilder, ButtonBuilder, EmbedBuilder, StringSelectMenuBuilder } from "discord.js";
 import { DiscordSerialiser } from "src/common/serialisers/abstract discord.serialiser";
-import { Attribute } from "src/features/narr8/modules/attribute/entities/attribute.entity";
+import { Attribute } from "src/features/narr8/modules/character/entities/attribute.entity";
 import { Character } from "src/features/narr8/modules/character/entities/character.entity";
 import { Roll, RollResult } from "src/features/narr8/modules/roll/services/roll.service";
 
@@ -75,7 +75,7 @@ ${rollText}
 
     return {
       embeds: [embed],
-      components: this.createButtons(),
+      components: this.createButtons(params.character),
     };
   }
 }

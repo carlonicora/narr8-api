@@ -1,166 +1,82 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { randomUUID } from "crypto";
-import { ChatInputCommandInteraction, Client, Guild, GuildMember } from "discord.js";
-import { DISCORD_CLIENT } from "src/common/providers/discord.client.provider";
+import { ButtonInteraction, ChatInputCommandInteraction, Guild, GuildMember } from "discord.js";
+import { attributes } from "src/common/enums/attributes";
 import { ErrorDiscordSerialiser } from "src/common/serialisers/error.discord.serialiser";
 import { Character } from "src/features/narr8/modules/character/entities/character.entity";
+import { CharacterSubCommand } from "src/features/narr8/modules/character/enums/character.sub.command";
 import { CharacterRepository } from "src/features/narr8/modules/character/repositories/character.repository";
 import { CharacterDiscordSerialiser } from "src/features/narr8/modules/character/serialisers/character.discord.serialiser";
+import { GuildDiscordService } from "src/features/narr8/modules/guild/services/guild.discord.service";
 import { User } from "src/features/narr8/modules/user/entities/user.entity";
 import { UserRepository } from "src/features/narr8/modules/user/repositories/user.repository";
-
-enum subCommand {
-  Create = "create",
-  Display = "display",
-  Avatar = "avatar",
-  Name = "name",
-}
-
-// List of attribute keys – note they are in lowercase to match the repository patch keys.
-const attributeKeys: string[] = [
-  "agility",
-  "awareness",
-  "charisma",
-  "empathy",
-  "intellect",
-  "occult",
-  "strength",
-  "willpower",
-];
+import { UserDiscordService } from "src/features/narr8/modules/user/services/user.discord.service";
+import { UserService } from "src/features/narr8/modules/user/services/user.service";
 
 @Injectable()
 export class CharacterDiscordService {
   private readonly logger = new Logger(CharacterDiscordService.name);
 
   constructor(
-    @Inject(DISCORD_CLIENT) private readonly client: Client,
     private readonly characterRepository: CharacterRepository,
     private readonly characterDiscordSerialiser: CharacterDiscordSerialiser,
     private readonly errorDiscordSerialiser: ErrorDiscordSerialiser,
     private readonly userRepository: UserRepository,
+    private readonly guildDiscordService: GuildDiscordService,
+    private readonly userDiscordService: UserDiscordService,
+    private readonly userService: UserService,
   ) {}
 
   async handleCharacterCommand(interaction: ChatInputCommandInteraction) {
-    const guild = interaction.guild;
-    if (!guild) {
-      await interaction.reply({
-        embeds: [this.errorDiscordSerialiser.serialise({ error: "Command used outside of a guild." })],
-      });
-      this.logger.error("Command used outside of a guild.");
-      return;
-    }
+    const guild = await this.guildDiscordService.getGuild({ interaction: interaction });
+    const guildUser = await this.userDiscordService.getUser({ interaction: interaction });
+    const user = await this.userService.findOne({
+      guildUser: guildUser,
+    });
 
-    const guildUser = interaction.user;
-    if (!guildUser) {
-      await interaction.reply({
-        embeds: [this.errorDiscordSerialiser.serialise({ error: "Command used by a non-guild user." })],
-      });
-      this.logger.error("Command used by a non-guild user.");
-      return;
-    }
-
-    let user: User = await this.userRepository.findUserByDiscord({ discord: guildUser.id });
-    if (!user) {
-      user = await this.userRepository.create({
-        id: randomUUID(),
-        discord: guildUser.id,
-        name: guildUser.username,
-      });
-    }
-
-    // Get subcommand
     const inputSubCommand = interaction.options.getSubcommand();
-    console.log(inputSubCommand);
+
+    const character: Character | null = await this.findOne({
+      interaction: interaction,
+      guild: guild,
+      userId: user.id,
+      create: inputSubCommand === CharacterSubCommand.Create,
+    });
+
+    if (!character && inputSubCommand !== CharacterSubCommand.Create) return;
+
     try {
-      if (inputSubCommand === subCommand.Create) {
-        const name = interaction.options.getString("name", true);
-        let character: Character = await this.characterRepository.findCharacterByDiscord({
-          discord: guild.id,
-          userId: user.id,
+      if (inputSubCommand === CharacterSubCommand.Create) {
+        this.create({ interaction: interaction, guild: guild, user: user });
+      } else if (inputSubCommand === CharacterSubCommand.Details) {
+        await this.details({
+          interaction: interaction,
+          guild: guild,
+          user: user,
+          character: character,
         });
-        if (character) {
-          await interaction.reply({
-            embeds: [
-              this.errorDiscordSerialiser.serialise({
-                error: `You already have a character (${character.name}) on this server.`,
-              }),
-            ],
-          });
-          return;
-        }
-        character = await this.create({ guild: guild, user: user, name });
-        const embed = this.characterDiscordSerialiser.serialise({ character });
-        await interaction.reply(embed);
-      } else if (inputSubCommand === subCommand.Display) {
-        const characterMember = interaction.options.getMember("character");
-        let targetUserId: string;
-        if (characterMember) {
-          const guildMember = characterMember as GuildMember;
-          const userCharacter = await this.userRepository.findUserByDiscord({ discord: guildMember.user.id });
-          if (userCharacter) targetUserId = userCharacter.id;
-        }
-        const character: Character = await this.characterRepository.findCharacterByDiscord({
-          discord: guild.id,
-          userId: targetUserId ?? user.id,
+      } else if (inputSubCommand === CharacterSubCommand.Avatar) {
+        await this.patchAvatar({
+          interaction: interaction,
+          guild: guild,
+          user: user,
+          character: character,
         });
-        if (!character) {
-          await interaction.reply({
-            embeds: [this.errorDiscordSerialiser.serialise({ error: "No character found." })],
-          });
-          return;
-        }
-        const embed = this.characterDiscordSerialiser.serialise({ character });
-        await interaction.reply(embed);
-      } else if (inputSubCommand === subCommand.Avatar) {
-        const link = interaction.options.getString("link", true);
-        let character: Character = await this.characterRepository.findCharacterByDiscord({
-          discord: guild.id,
-          userId: user.id,
+      } else if (inputSubCommand === CharacterSubCommand.Name) {
+        await this.patchName({
+          interaction: interaction,
+          guild: guild,
+          user: user,
+          character: character,
         });
-        if (!character) {
-          await interaction.reply({
-            embeds: [this.errorDiscordSerialiser.serialise({ error: "No character found." })],
-          });
-          return;
-        }
-        character = await this.characterRepository.patch({ characterId: character.id, avatar: link });
-        const embed = this.characterDiscordSerialiser.serialise({ character });
-        await interaction.reply(embed);
-      } else if (inputSubCommand === subCommand.Name) {
-        const name = interaction.options.getString("name", true);
-        let character: Character = await this.characterRepository.findCharacterByDiscord({
-          discord: guild.id,
-          userId: user.id,
+      } else if (attributes.map((attribute) => attribute.name.toLowerCase()).includes(inputSubCommand.toLowerCase())) {
+        await this.patchAttributeProficiency({
+          interaction: interaction,
+          guild: guild,
+          user: user,
+          character: character,
+          inputSubCommand: inputSubCommand,
         });
-        if (!character) {
-          await interaction.reply({
-            embeds: [this.errorDiscordSerialiser.serialise({ error: "No character found." })],
-          });
-          return;
-        }
-        character = await this.characterRepository.patch({ characterId: character.id, name: name });
-        const embed = this.characterDiscordSerialiser.serialise({ character });
-        await interaction.reply(embed);
-      }
-      // Handle all attribute sub-commands generically
-      else if (attributeKeys.includes(inputSubCommand)) {
-        const proficiency = interaction.options.getString("proficiency", true);
-        let character: Character = await this.characterRepository.findCharacterByDiscord({
-          discord: guild.id,
-          userId: user.id,
-        });
-        if (!character) {
-          await interaction.reply({
-            embeds: [this.errorDiscordSerialiser.serialise({ error: "No character found." })],
-          });
-          return;
-        }
-        // Build the patch object dynamically using the sub-command key
-        const patchObj: any = { characterId: character.id };
-        patchObj[inputSubCommand] = proficiency;
-        character = await this.characterRepository.patch(patchObj);
-        const embed = this.characterDiscordSerialiser.serialise({ character });
-        await interaction.reply(embed);
       } else {
         await interaction.reply({
           embeds: [this.errorDiscordSerialiser.serialise({ error: "Invalid sub-command." })],
@@ -179,12 +95,147 @@ export class CharacterDiscordService {
     }
   }
 
-  private async create(params: { guild: Guild; user: User; name: string }): Promise<Character> {
-    return this.characterRepository.create({
+  async handleButtonInteraction(interaction: ButtonInteraction) {
+    if (!interaction.customId.startsWith("/character detail")) return;
+
+    const characterId = interaction.customId.split(":")[1];
+
+    const guild = await this.guildDiscordService.getGuild({ interaction: interaction });
+    const character = await this.findOneById({
+      interaction: interaction,
+      characterId: characterId,
+    });
+
+    if (!character) return;
+
+    await this.details({ interaction: interaction, character: character, guild: guild, user: character.user });
+  }
+
+  private async patchAttributeProficiency(params: {
+    interaction: ChatInputCommandInteraction;
+    guild: Guild;
+    user: User;
+    character: Character;
+    inputSubCommand: string;
+  }) {
+    const proficiency = params.interaction.options.getString("proficiency", true);
+
+    const patchObj: any = { characterId: params.character.id };
+    patchObj[params.inputSubCommand] = proficiency;
+    const character = await this.characterRepository.patch(patchObj);
+    await params.interaction.reply(this.characterDiscordSerialiser.serialise({ character: character }));
+  }
+
+  private async patchName(params: {
+    interaction: ChatInputCommandInteraction;
+    guild: Guild;
+    user: User;
+    character: Character;
+  }) {
+    const name = params.interaction.options.getString("name", true);
+
+    const character = await this.characterRepository.patch({ characterId: params.character.id, name: name });
+    await params.interaction.reply(this.characterDiscordSerialiser.serialise({ character: character }));
+  }
+
+  private async patchAvatar(params: {
+    interaction: ChatInputCommandInteraction;
+    guild: Guild;
+    user: User;
+    character: Character;
+  }) {
+    const link = params.interaction.options.getString("link", true);
+
+    const character = await this.characterRepository.patch({ characterId: params.character.id, avatar: link });
+    await params.interaction.reply(this.characterDiscordSerialiser.serialise({ character: character }));
+  }
+
+  private async details(params: {
+    interaction: ChatInputCommandInteraction | ButtonInteraction;
+    guild: Guild;
+    user: User;
+    character: Character;
+  }) {
+    if (params.interaction instanceof ChatInputCommandInteraction) {
+      const characterMember = params.interaction.options.getMember("character");
+
+      if (characterMember) {
+        const userCharacter = await this.userRepository.findUserByDiscord({
+          discord: (characterMember as GuildMember).user.id,
+        });
+        if (userCharacter)
+          params.character = await this.findOne({
+            interaction: params.interaction,
+            guild: params.guild,
+            userId: userCharacter.id,
+            create: false,
+          });
+
+        if (!params.character) return;
+      }
+    }
+
+    await params.interaction.reply(this.characterDiscordSerialiser.serialise({ character: params.character }));
+  }
+
+  async findOne(params: {
+    interaction: ChatInputCommandInteraction | ButtonInteraction;
+    guild: Guild;
+    userId: string;
+    create: boolean;
+  }): Promise<Character | null> {
+    const response: Character = await this.characterRepository.findCharacterByDiscord({
+      discord: params.guild.id,
+      userId: params.userId,
+    });
+
+    if (response && params.create) {
+      await params.interaction.reply({
+        embeds: [
+          this.errorDiscordSerialiser.serialise({
+            error: `You already have a character (${response.name}) on this server.`,
+          }),
+        ],
+      });
+      return;
+    }
+
+    if (!response && !params.create) {
+      await params.interaction.reply({
+        embeds: [this.errorDiscordSerialiser.serialise({ error: "No character found." })],
+      });
+      return;
+    }
+
+    return response;
+  }
+
+  async findOneById(params: {
+    interaction: ChatInputCommandInteraction | ButtonInteraction;
+    characterId: string;
+  }): Promise<Character | null> {
+    const response: Character = await this.characterRepository.findOne({
+      characterId: params.characterId,
+    });
+
+    if (!response) {
+      await params.interaction.reply({
+        embeds: [this.errorDiscordSerialiser.serialise({ error: "No character found." })],
+      });
+      return;
+    }
+
+    return response;
+  }
+
+  private async create(params: { interaction: ChatInputCommandInteraction; guild: Guild; user: User }): Promise<void> {
+    const name = params.interaction.options.getString("name", true);
+    const newCharacter = await this.characterRepository.create({
       characterId: randomUUID(),
       discord: params.guild.id,
       userId: params.user.id,
-      name: params.name,
+      name: name,
     });
+    await params.interaction.reply(this.characterDiscordSerialiser.serialise({ character: newCharacter }));
   }
 }

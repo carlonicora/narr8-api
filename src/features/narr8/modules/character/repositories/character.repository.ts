@@ -29,6 +29,24 @@ export class CharacterRepository {
     return this.neo4j.readOne(query);
   }
 
+  async findOne(params: { characterId: string }): Promise<Character> {
+    const query = this.neo4j.initQuery({ serialiser: CharacterModel });
+
+    query.queryParams = {
+      ...query.queryParams,
+      characterId: params.characterId,
+    };
+
+    query.query += `
+      MATCH (character:Character {id: $characterId})
+      MATCH (character)-[character_proficiency:HAS_ATTRIBUTE]->(character_attribute:Attribute)
+      MATCH (character)-[:OWNED_BY]->(character_user:User)
+      RETURN character, character_proficiency, character_attribute, character_user
+    `;
+
+    return this.neo4j.readOne(query);
+  }
+
   async create(params: { characterId: string; discord: string; name: string; userId: string }): Promise<Character> {
     const query = this.neo4j.initQuery({ serialiser: CharacterModel });
 
